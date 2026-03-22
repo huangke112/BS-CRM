@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>客户管理系统</title>
+  <link rel="stylesheet" href="https://fastly.jsdelivr.net/npm/vant@4.8.10/lib/index.css">
+  <style>
+    body { background: #f7f8fa; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica, sans-serif; }
+    .page { padding: 12px; padding-bottom: 80px; }
+    .card { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+    .card-title { font-size: 16px; font-weight: 600; color: #323233; margin-bottom: 8px; }
+    .card-subtitle { font-size: 13px; color: #969799; }
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-right: 4px; }
+    .tag-strategy { background: #ff4d4f; color: #fff; }
+    .tag-p0 { background: #ff9800; color: #fff; }
+    .tag-p1 { background: #1890ff; color: #fff; }
+    .tag-p2 { background: #52c41a; color: #fff; }
+    .warning-card { background: #fff7e6; border: 1px solid #ffd591; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+    .warning-title { color: #d46b08; font-weight: 600; font-size: 14px; }
+    .warning-item { font-size: 13px; color: #666; margin: 6px 0; }
+    .fab { position: fixed; bottom: 24px; right: 24px; width: 56px; height: 56px; border-radius: 50%; background: #1890ff; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 28px; box-shadow: 0 4px 12px rgba(24,144,255,0.4); z-index: 999; cursor: pointer; }
+    .timeline { position: relative; padding-left: 20px; }
+    .timeline-item { position: relative; padding-bottom: 20px; border-left: 2px solid #e8e8e8; padding-left: 16px; }
+    .timeline-item::before { content: ''; position: absolute; left: -6px; top: 0; width: 10px; height: 10px; border-radius: 50%; background: #1890ff; }
+    .timeline-date { font-size: 12px; color: #969799; }
+    .timeline-content { font-size: 14px; color: #323233; margin: 4px 0; }
+    .timeline-meta { font-size: 12px; color: #969799; }
+    .search-bar { margin-bottom: 12px; }
+    .filter-bar { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 12px; }
+    .filter-chip { padding: 6px 12px; background: #fff; border-radius: 16px; font-size: 13px; white-space: nowrap; border: 1px solid #e8e8e8; cursor: pointer; }
+    .filter-chip.active { background: #1890ff; color: #fff; border-color: #1890ff; }
+    .location-btn { background: #e6f7ff; border: 1px solid #91d5ff; color: #1890ff; padding: 12px 16px; border-radius: 6px; width: 100%; margin: 8px 0; font-size: 14px; cursor: pointer; }
+    .location-status { font-size: 12px; color: #969799; margin-top: 4px; }
+    .login-container { text-align: center; padding: 60px 20px; }
+    .login-btn { background: #00d6b9; color: #fff; border: none; padding: 14px 60px; border-radius: 8px; font-size: 16px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <!-- 登录页 -->
+    <div v-if="!isLoggedIn" class="login-container">
+      <h1 style="color: #323233; margin-bottom: 40px;">🐕 客户管理系统</h1>
+      <p style="color: #969799; margin-bottom: 40px;">飞书多维表格驱动 · 销售团队专用</p>
+      <button class="login-btn" @click="feishuLogin">飞书登录</button>
+      <p style="color: #969799; font-size: 12px; margin-top: 20px;">使用飞书账号登录，安全便捷</p>
+    </div>
+
+    <!-- 首页 -->
+    <div v-if="isLoggedIn && currentPage === 'home'" class="page">
+      <!-- P0 客户未跟进提醒 -->
+      <div v-if="warningCustomers.length > 0" class="warning-card" @click="showWarningDetail = true">
+        <div class="warning-title">⚠️ 你有 {{ warningCustomers.length }} 个 P0/战略客户超过 7 天未跟进</div>
+        <div v-for="c in warningCustomers.slice(0, 3)" :key="c.name" class="warning-item">• {{ c.name }}（上次：{{ c.lastFollowup }}）</div>
+        <van-button v-if="warningCustomers.length > 3" type="primary" size="small" plain>查看全部</van-button>
+      </div>
+      
+      <!-- 搜索栏 -->
+      <van-search v-model="searchQuery" placeholder="搜索公司名/KP" shape="round" class="search-bar" @input="handleSearch" />
+      
+      <!-- 筛选器 -->
+      <div class="filter-bar">
+        <div class="filter-chip" :class="{active: filters.progress === ''}" @click="filters.progress = ''">全部进展</div>
+        <div class="filter-chip" :class="{active: filters.progress === '未建联'}" @click="filters.progress = '未建联'">未建联</div>
+        <div class="filter-chip" :class="{active: filters.progress === '已建联'}" @click="filters.progress = '已建联'">已建联</div>
+        <div class="filter-chip" :class="{active: filters.progress === '已拜访'}" @click="filters.progress = '已拜访'">已拜访</div>
+        <div class="filter-chip" :class="{active: filters.layer === ''}" @click="filters.layer = ''">全部层级</div>
+        <div class="filter-chip" :class="{active: filters.layer === '战略客户'}" @click="filters.layer = '战略客户'">战略</div>
+        <div class="filter-chip" :class="{active: filters.layer === 'P0'}" @click="filters.layer = 'P0'">P0</div>
+        <div class="filter-chip" :class="{active: isMyCustomers}" @click="isMyCustomers = !isMyCustomers">{{ isMyCustomers ? '我的客户' : '全部客户' }}</div>
+      </div>
+      
+      <!-- 客户列表 -->
+      <div v-for="customer in filteredCustomers" :key="customer.公司名称" class="card" @click="goToDetail(customer)">
+        <div class="card-title">
+          {{ customer.公司名称 }}
+          <span v-if="customer.客户分层" :class="['tag', getLayerClass(customer.客户分层)]">{{ customer.客户分层 }}</span>
+        </div>
+        <div class="card-subtitle">KP: {{ customer.KP || '-' }} | 销售：{{ formatUser(customer.销售) }}</div>
+        <div class="card-subtitle" style="margin-top: 8px;">
+          GMV: {{ formatNumber(customer.GMV) }} | 贷款：{{ formatNumber(customer.贷款余额) }}
+        </div>
+        <div class="card-subtitle" style="margin-top: 8px;">
+          进展：{{ customer.客户进展 || '-' }}
+        </div>
+      </div>
+      
+      <!-- 悬浮按钮 -->
+      <div class="fab" @click="currentPage = 'addCustomer'">+</div>
+    </div>
+    
+    <!-- 客户详情页 -->
+    <div v-if="currentPage === 'detail'" class="page">
+      <van-nav-bar title="客户详情" left-text="返回" left-arrow @click-left="currentPage = 'home'" />
+      
+      <div v-if="currentCustomer" class="card" style="margin-top: 12px;">
+        <div class="card-title">{{ currentCustomer.公司名称 }}</div>
+        <van-grid :column-num="3" :border="false">
+          <van-grid-item text="GMV" :content="formatNumber(currentCustomer.GMV)" />
+          <van-grid-item text="TPV" :content="formatNumber(currentCustomer.TPV)" />
+          <van-grid-item text="贷款余额" :content="formatNumber(currentCustomer.贷款余额)" />
+        </van-grid>
+      </div>
+      
+      <div class="card">
+        <div class="card-title">基本信息</div>
+        <van-cell-group :border="false">
+          <van-cell title="客户分层" :value="currentCustomer.客户分层" />
+          <van-cell title="运营模式" :value="currentCustomer.运营模式" />
+          <van-cell title="客户来源" :value="currentCustomer.客户来源" />
+          <van-cell title="地区归属" :value="currentCustomer.地区归属" />
+          <van-cell title="销售" :value="formatUser(currentCustomer.销售)" />
+          <van-cell title="客户进展" :value="currentCustomer.客户进展" />
+          <van-cell title="客户 MID" :value="currentCustomer.客户 MID || '未填写'" />
+          <van-cell title="FastPay 卡点" :value="currentCustomer.FastPay 卡点" />
+          <van-cell title="落地日期" :value="currentCustomer.落地日期" />
+          <van-cell title="项目评分" :value="currentCustomer.项目评分" />
+        </van-cell-group>
+        <van-button type="primary" block style="margin-top: 12px;" @click="currentPage = 'editCustomer'">编辑客户</van-button>
+      </div>
+      
+      <div class="card">
+        <div class="card-title">跟进记录</div>
+        <div class="timeline">
+          <div v-for="item in followups" :key="item.自动编号" class="timeline-item">
+            <div class="timeline-date">{{ item.跟进日期 }}</div>
+            <div class="timeline-content">{{ item.跟进情况 }}</div>
+            <div class="timeline-meta">{{ item.跟进方式 }} | 参与：{{ formatUsers(item.参与人员) }} | 地点：{{ formatLocation(item.跟进地点) }}</div>
+          </div>
+          <div v-if="followups.length === 0" style="text-align: center; color: #969799; padding: 20px;">暂无跟进记录</div>
+        </div>
+        <van-button type="primary" block style="margin-top: 12px;" @click="currentPage = 'addFollowup'">新增跟进</van-button>
+      </div>
+    </div>
+    
+    <!-- 新增客户页 -->
+    <div v-if="currentPage === 'addCustomer'" class="page">
+      <van-nav-bar title="新增客户" left-text="返回" left-arrow @click-left="currentPage = 'home'" right-text="保存" @click-right="saveCustomer" />
+      <van-form @submit="saveCustomer">
+        <van-cell-group inset>
+          <van-field v-model="newCustomer.公司名称" label="公司名称" placeholder="必填" required />
+          <van-field v-model="newCustomer.KP" label="KP" placeholder="选填" />
+          <van-field v-model="newCustomer.客户 MID" label="客户 MID" type="number" placeholder="选填" />
+          <van-field v-model="newCustomer.GMV" label="GMV" type="number" placeholder="选填" />
+          <van-field v-model="newCustomer.TPV" label="TPV" type="number" placeholder="选填" />
+          <van-field v-model="newCustomer.贷款余额" label="贷款余额" type="number" placeholder="选填" />
+          <van-field v-model="newCustomer.客户进展" label="客户进展" readonly placeholder="请选择" @click="showProgressPicker = true" />
+          <van-field v-model="newCustomer.客户分层" label="客户分层" readonly placeholder="请选择" @click="showLayerPicker = true" />
+          <van-field v-model="newCustomer.运营模式" label="运营模式" readonly placeholder="请选择" @click="showModePicker = true" />
+          <van-field v-model="newCustomer.客户来源" label="客户来源" readonly placeholder="请选择" @click="showSourcePicker = true" />
+          <van-field v-model="newCustomer.地区归属" label="地区归属" readonly placeholder="请选择" @click="showAreaPicker = true" />
+        </van-cell-group>
+        <div style="margin: 16px;">
+          <van-button type="primary" block native-type="submit">保存</van-button>
+        </div>
+      </van-form>
+      
+      <!-- 选择器 -->
+      <van-popup v-model:show="showProgressPicker" position="bottom">
+        <van-picker :columns="progressOptions" @confirm="onProgressConfirm" @cancel="showProgressPicker = false" />
+      </van-popup>
+      <van-popup v-model:show="showLayerPicker" position="bottom">
+        <van-picker :columns="layerOptions" @confirm="onLayerConfirm" @cancel="showLayerPicker = false" />
+      </van-popup>
+      <van-popup v-model:show="showModePicker" position="bottom">
+        <van-picker :columns="modeOptions" @confirm="onModeConfirm" @cancel="showModePicker = false" />
+      </van-popup>
+      <van-popup v-model:show="showSourcePicker" position="bottom">
+        <van-picker :columns="sourceOptions" @confirm="onSourceConfirm" @cancel="showSourcePicker = false" />
+      </van-popup>
+      <van-popup v-model:show="showAreaPicker" position="bottom">
+        <van-picker :columns="areaOptions" @confirm="onAreaConfirm" @cancel="showAreaPicker = false" />
+      </van-popup>
+    </div>
+    
+    <!-- 编辑客户页 -->
+    <div v-if="currentPage === 'editCustomer'" class="page">
+      <van-nav-bar title="编辑客户" left-text="返回" left-arrow @click-left="currentPage = 'detail'" right-text="保存" @click-right="updateCustomer" />
+      <van-form @submit="updateCustomer">
+        <van-cell-group inset>
+          <van-field v-model="currentCustomer.公司名称" label="公司名称" readonly />
+          <van-field v-model="currentCustomer.KP" label="KP" placeholder="选填" />
+          <van-field v-model="currentCustomer.客户 MID" label="客户 MID" type="number" placeholder="选填" />
+          <van-field v-model="currentCustomer.GMV" label="GMV" type="number" placeholder="选填" />
+          <van-field v-model="currentCustomer.TPV" label="TPV" type="number" placeholder="选填" />
+          <van-field v-model="currentCustomer.贷款余额" label="贷款余额" type="number" placeholder="选填" />
+          <van-field v-model="currentCustomer.客户进展" label="客户进展" readonly placeholder="请选择" @click="showProgressPicker = true" />
+          <van-field v-model="currentCustomer.客户分层" label="客户分层" readonly placeholder="请选择" @click="showLayerPicker = true" />
+          <van-field v-model="currentCustomer.运营模式" label="运营模式" readonly placeholder="请选择" @click="showModePicker = true" />
+          <van-field v-model="currentCustomer.客户来源" label="客户来源" readonly placeholder="请选择" @click="showSourcePicker = true" />
+          <van-field v-model="currentCustomer.地区归属" label="地区归属" readonly placeholder="请选择" @click="showAreaPicker = true" />
+        </van-cell-group>
+        <div style="margin: 16px;">
+          <van-button type="primary" block native-type="submit">保存</van-button>
+        </div>
+      </van-form>
+    </div>
+    
+    <!-- 新增跟进页 -->
+    <div v-if="currentPage === 'addFollowup'" class="page">
+      <van-nav-bar title="新增跟进" left-text="返回" left-arrow @click-left="currentPage = 'detail'" right-text="保存" @click-right="saveFollowup" />
+      <van-form @submit="saveFollowup">
+        <van-cell-group inset>
+          <van-field v-model="newFollowup.公司名字" label="关联客户" readonly placeholder="请选择客户" @click="selectCustomerForFollowup" required />
+          <van-field v-model="newFollowup.跟进方式" label="跟进方式" readonly placeholder="请选择" @click="showFollowupTypePicker = true" required />
+          <van-field v-model="newFollowup.参与人员" label="参与人员" type="textarea" rows="2" placeholder="输入参与人姓名，多个用逗号分隔" />
+          <van-field v-model="newFollowup.跟进情况" label="跟进情况" type="textarea" rows="4" placeholder="必填" required />
+          <van-field v-model="newFollowup.智能纪要" label="智能纪要" placeholder="飞书文档链接（选填）" />
+          
+          <!-- 地理位置打卡 -->
+          <div style="padding: 16px;">
+            <div style="font-size: 14px; color: #323233; margin-bottom: 8px;">跟进地点（现场打卡）</div>
+            <button class="location-btn" @click="getLocation" type="button">
+              📍 {{ locationStatus }}
+            </button>
+            <div v-if="location" class="location-status">
+              经纬度：{{ location.latitude }}, {{ location.longitude }}
+            </div>
+          </div>
+        </van-cell-group>
+        <div style="margin: 16px;">
+          <van-button type="primary" block native-type="submit">保存</van-button>
+        </div>
+      </van-form>
+      
+      <van-popup v-model:show="showFollowupTypePicker" position="bottom">
+        <van-picker :columns="followupTypeOptions" @confirm="onFollowupTypeConfirm" @cancel="showFollowupTypePicker = false" />
+      </van-popup>
+    </div>
+    
+    <!-- P0 未跟进提醒详情弹窗 -->
+    <van-popup v-model:show="showWarningDetail" position="bottom" round style="height: 60%;">
+      <div style="padding: 20px;">
+        <div style="font-size: 18px; font-weight: 600; margin-bottom: 16px;">⚠️ 超过 7 天未跟进的 P0/战略客户</div>
+        <div v-for="c in warningCustomers" :key="c.name" class="card" @click="goToDetailByName(c.name); showWarningDetail = false">
+          <div class="card-title">{{ c.name }}</div>
+          <div class="card-subtitle">上次跟进：{{ c.lastFollowup }} | 分层：{{ c.layer }}</div>
+        </div>
+        <van-button block @click="showWarningDetail = false">关闭</van-button>
+      </div>
+    </van-popup>
+  </div>
+  
+  <script src="https://fastly.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.prod.min.js"></script>
+  <script src="https://fastly.jsdelivr.net/npm/vant@4.8.10/lib/vant.min.js"></script>
+  <script src="https://fastly.jsdelivr.net/npm/axios@1.6.8/dist/axios.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
